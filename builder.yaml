@@ -1,0 +1,8 @@
+components:
+  - name: web
+    role: web
+    platform: python
+    platformVersion: "3.14"
+    run:
+      start: gunicorn --bind 0.0.0.0:8080 --workers 1 --threads 4 --timeout 30 app:app
+      healthCheckPath: /health
