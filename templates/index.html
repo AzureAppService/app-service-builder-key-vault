@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weather across your destinations</title>
+  <script nonce="{{ g.nonce }}">
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style nonce="{{ g.nonce }}">
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; }
+    main { max-width: 960px; margin: 0 auto; padding: 64px 24px 32px; }
+    .eyebrow { color: var(--cp-accent); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.12; margin: 16px 0; letter-spacing: -.035em; }
+    .intro, footer, .metadata { color: var(--cp-text-muted); line-height: 1.6; }
+    .intro { max-width: 600px; font-size: 18px; }
+    .lookup { margin: 24px 0; }
+    .lookup label { font-weight: 600; }
+    .lookup-fields { display: flex; gap: 12px; margin-top: 8px; }
+    .lookup input { flex: 1; min-width: 0; border: 1px solid var(--cp-border-strong); border-radius: .625rem; padding: 12px; font: inherit; background: var(--cp-surface); color: var(--cp-text); }
+    .lookup .metadata { margin: 8px 0; }
+    .units { border: 0; padding: 0; margin: 0 0 20px; }
+    .units legend { color: var(--cp-text-muted); font-size: 14px; padding: 0; margin-bottom: 8px; }
+    .units label { display: inline-flex; align-items: center; gap: 8px; margin: 0 16px 8px 0; }
+    .units input { accent-color: var(--cp-accent); width: 18px; height: 18px; margin: 0; }
+    nav { display: flex; flex-wrap: wrap; gap: 12px; margin: 32px 0 24px; }
+    button { border: 1px solid var(--cp-border-strong); background: var(--cp-surface); color: var(--cp-text); border-radius: .625rem; padding: 12px 20px; font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover { background: var(--cp-surface-soft); }
+    button[aria-pressed="true"] { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 4px; }
+    .panel { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; padding: 32px; min-height: 300px; }
+    .heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+    h2 { font-size: 26px; margin: 0 0 8px; min-width: 0; overflow-wrap: anywhere; }
+    #source { font-size: 13px; padding: 6px 12px; border-radius: .625rem; background: var(--cp-accent-soft); color: var(--cp-accent); white-space: nowrap; }
+    #temperature { font-size: 72px; font-weight: 650; line-height: 1; margin: 24px 0 12px; letter-spacing: -.04em; }
+    #condition { font-size: 20px; margin: 0 0 24px; }
+    dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; }
+    dl div { border-top: 1px solid var(--cp-border); padding-top: 16px; }
+    dt { color: var(--cp-text-muted); font-size: 14px; margin-bottom: 8px; }
+    dd { font-size: 22px; margin: 0; font-weight: 600; }
+    .metadata { font-size: 13px; margin-top: 20px; }
+    #status { min-height: 28px; margin: 16px 0 0; line-height: 1.5; }
+    footer { font-size: 13px; margin-top: 28px; }
+    a { color: var(--cp-link); }
+    [hidden] { display: none !important; }
+    @media (max-width: 520px) {
+      main { padding: 32px 16px; }
+      .panel { padding: 24px; }
+      .heading { flex-direction: column; }
+      nav button { flex: 1; padding: 12px; }
+      .lookup-fields { flex-direction: column; }
+      dl { grid-template-columns: 1fr; gap: 8px; }
+      dl div { display: flex; justify-content: space-between; align-items: center; }
+      dt { margin: 0; }
+    }
+  </style>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main>
+    {% if preview_notice %}
+    <p class="metadata"><strong>{{ preview_notice }}</strong></p>
+    {% endif %}
+    <div class="eyebrow">App + Azure Key Vault</div>
+    <h1>Weather across your destinations</h1>
+    <p class="intro">Check current conditions before your next visit. Choose a quick pick or enter a city or postal code.</p>
+    <form class="lookup" id="location-form">
+      <label for="location-query">City or postal code</label>
+      <div class="lookup-fields">
+        <input id="location-query" name="location" type="text" required minlength="2" maxlength="80" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-describedby="location-help" placeholder="For example, Paris or 10001">
+        <button type="submit">Get weather</button>
+      </div>
+      <p class="metadata" id="location-help">Location matching is provided by WeatherAPI. Check the returned place before using its observation.</p>
+    </form>
+    <nav aria-label="Choose a destination">
+      {% for location in locations %}
+      <button type="button" data-location="{{ location.id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ location.name }}</button>
+      {% endfor %}
+    </nav>
+    <fieldset class="units">
+      <legend>Units</legend>
+      <label><input type="radio" name="units" value="c" checked> Celsius (°C, km/h)</label>
+      <label><input type="radio" name="units" value="f"> Fahrenheit (°F, mph)</label>
+    </fieldset>
+    <section class="panel" aria-label="Current weather" aria-busy="false">
+      <div class="heading">
+        <h2 id="location">{{ locations[0].name }}</h2>
+        <span id="source" hidden></span>
+      </div>
+      <div id="weather" hidden>
+        <div id="temperature"></div>
+        <p id="condition"></p>
+        <dl>
+          <div><dt>Feels like</dt><dd id="feels-like"></dd></div>
+          <div><dt>Wind</dt><dd id="wind"></dd></div>
+          <div><dt>Humidity</dt><dd id="humidity"></dd></div>
+        </dl>
+        <p class="metadata" id="observation"></p>
+      </div>
+      <p id="status" role="status" aria-live="polite">Loading current conditions...</p>
+    </section>
+    <footer>
+      Weather data provided by <a href="https://www.weatherapi.com/">WeatherAPI.com</a>.
+      Data is cached for up to ten minutes. Informational use only, not safety guidance.
+      <p>The server reads its API credential from Azure Key Vault using managed identity. Your browser receives weather data, not the credential.</p>
+    </footer>
+  </main>
+</body>
+</html>
