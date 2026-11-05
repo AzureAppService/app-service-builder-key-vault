@@ -220,7 +220,12 @@ gunicorn --bind 127.0.0.1:8080 --workers 1 --threads 4 app:app
 Your signed-in local user needs secret-read permission. Hosted mode defaults
 to `ManagedIdentityCredential`; it does not fall back to a local user.
 Tests use synthetic keys and provider payloads. They do not contact Azure or
-qualify a hosted deployment.
+qualify a hosted deployment. The suite also starts real Gunicorn using the
+manifest's startup command and `app:app`, with an inherited loopback listener
+instead of the public bind. Worker-only Key Vault/provider fixtures cover HTTP
+readiness, weather/cache responses, safe dependency errors, and graceful shutdown.
+This checks runtime compatibility, not live Azure authentication or provider access.
+Never deploy with the test-only `tests/gunicorn_fixture.py` configuration.
 
 ## Clean up resources
 
