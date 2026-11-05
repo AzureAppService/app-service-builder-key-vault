@@ -72,14 +72,23 @@
     h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.12; margin: 16px 0; letter-spacing: -.035em; }
     .intro, footer, .metadata { color: var(--cp-text-muted); line-height: 1.6; }
     .intro { max-width: 600px; font-size: 18px; }
+    .lookup { margin: 24px 0; }
+    .lookup label { font-weight: 600; }
+    .lookup-fields { display: flex; gap: 12px; margin-top: 8px; }
+    .lookup input { flex: 1; min-width: 0; border: 1px solid var(--cp-border-strong); border-radius: .625rem; padding: 12px; font: inherit; background: var(--cp-surface); color: var(--cp-text); }
+    .lookup .metadata { margin: 8px 0; }
+    .units { border: 0; padding: 0; margin: 0 0 20px; }
+    .units legend { color: var(--cp-text-muted); font-size: 14px; padding: 0; margin-bottom: 8px; }
+    .units label { display: inline-flex; align-items: center; gap: 8px; margin: 0 16px 8px 0; }
+    .units input { accent-color: var(--cp-accent); width: 18px; height: 18px; margin: 0; }
     nav { display: flex; flex-wrap: wrap; gap: 12px; margin: 32px 0 24px; }
     button { border: 1px solid var(--cp-border-strong); background: var(--cp-surface); color: var(--cp-text); border-radius: .625rem; padding: 12px 20px; font: inherit; font-weight: 600; cursor: pointer; }
     button:hover { background: var(--cp-surface-soft); }
     button[aria-pressed="true"] { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
-    button:focus-visible, a:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 4px; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 4px; }
     .panel { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; padding: 32px; min-height: 300px; }
     .heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
-    h2 { font-size: 26px; margin: 0 0 8px; }
+    h2 { font-size: 26px; margin: 0 0 8px; min-width: 0; overflow-wrap: anywhere; }
     #source { font-size: 13px; padding: 6px 12px; border-radius: .625rem; background: var(--cp-accent-soft); color: var(--cp-accent); white-space: nowrap; }
     #temperature { font-size: 72px; font-weight: 650; line-height: 1; margin: 24px 0 12px; letter-spacing: -.04em; }
     #condition { font-size: 20px; margin: 0 0 24px; }
@@ -97,6 +106,7 @@
       .panel { padding: 24px; }
       .heading { flex-direction: column; }
       nav button { flex: 1; padding: 12px; }
+      .lookup-fields { flex-direction: column; }
       dl { grid-template-columns: 1fr; gap: 8px; }
       dl div { display: flex; justify-content: space-between; align-items: center; }
       dt { margin: 0; }
@@ -111,12 +121,25 @@
     {% endif %}
     <div class="eyebrow">App + Azure Key Vault</div>
     <h1>Weather across your destinations</h1>
-    <p class="intro">Check current conditions before your next visit. Choose a destination to see its latest weather observation.</p>
+    <p class="intro">Check current conditions before your next visit. Choose a quick pick or enter a city or postal code.</p>
+    <form class="lookup" id="location-form">
+      <label for="location-query">City or postal code</label>
+      <div class="lookup-fields">
+        <input id="location-query" name="location" type="text" required minlength="2" maxlength="80" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-describedby="location-help" placeholder="For example, Paris or 10001">
+        <button type="submit">Get weather</button>
+      </div>
+      <p class="metadata" id="location-help">Location matching is provided by WeatherAPI. Check the returned place before using its observation.</p>
+    </form>
     <nav aria-label="Choose a destination">
       {% for location in locations %}
       <button type="button" data-location="{{ location.id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ location.name }}</button>
       {% endfor %}
     </nav>
+    <fieldset class="units">
+      <legend>Units</legend>
+      <label><input type="radio" name="units" value="c" checked> Celsius (°C, km/h)</label>
+      <label><input type="radio" name="units" value="f"> Fahrenheit (°F, mph)</label>
+    </fieldset>
     <section class="panel" aria-label="Current weather" aria-busy="false">
       <div class="heading">
         <h2 id="location">{{ locations[0].name }}</h2>

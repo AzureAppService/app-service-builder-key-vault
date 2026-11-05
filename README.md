@@ -1,12 +1,14 @@
 # Call a weather API with a Key Vault secret
 
-Compare current weather across three configured destinations in a small Python
-application. The server reads a private WeatherAPI.com credential from Azure
+Check current weather for a city or postal code, or use three configured quick
+picks, in a small Python application. The server reads a private WeatherAPI.com credential from Azure
 Key Vault using managed identity, then calls WeatherAPI over HTTPS. The browser
 receives curated observations, not the credential.
 
 This demonstrates a real credential-based dependency that cannot use Microsoft
 Entra authentication. A keyless weather API would not need Key Vault.
+
+Canonical source: [AzureAppService/app-service-builder-key-vault](https://github.com/AzureAppService/app-service-builder-key-vault).
 
 ## Prerequisites
 
@@ -133,6 +135,20 @@ The second request must return real weather fields, including `observedAt`,
 `"cached":true`, without a secret field. Open the app, select each destination,
 and check observation timestamps and visible units.
 
+Enter a city such as `Paris`, a US ZIP such as `10001`, or a supported UK/Canadian
+postal code, then use **Get weather**. Verify the returned place: provider
+matching can be ambiguous. Invalid input, a place that cannot be found, a busy
+refresh, and exhausted app/provider allowances have explicit errors.
+
+```bash
+curl --fail --silent --show-error --get "$APP_URL/api/weather" \
+  --data-urlencode "location=Paris"
+```
+
+Switch **Units** between Celsius and Fahrenheit. Temperature and feels-like
+change between °C/°F; wind changes between km/h/mph. The browser converts the
+already loaded observation, without another API or Key Vault request.
+
 Verify the active version/source revision in Builder. Inspect browser network
 responses and sanitized runtime diagnostics: the key must not appear.
 App-to-vault identity, data-role permissions, networking, and provider
@@ -141,8 +157,16 @@ hosted managed-identity discovery.
 
 ## Cache and rotation behavior
 
-- Weather is cached for ten minutes per configured destination. Concurrent
-  refreshes are coalesced; no manual bypass exists.
+- Weather is cached for ten minutes per configured destination or normalized
+  entered query. At most 64 observations and 64 short-lived failures are held
+  per process; oldest stored entries are evicted when full. There is no manual
+  bypass. Different query spellings can resolve to the same city and still
+  consume separate calls.
+- At most 12 uncached entered-place lookups are accepted in any rolling minute
+  per process. Quick picks and cache hits do not consume that lookup allowance.
+  All actual provider attempts still share the 500-attempt UTC-day allowance.
+  One upstream refresh runs at a time; requests waiting over one second fail
+  explicitly rather than creating an unbounded queue.
 - The latest unversioned secret is cached for up to five minutes and never
   beyond its recorded expiry. Disabled/expired/empty secrets fail explicitly.
 - Create a new version of `weather-api-key` when you rotate the provider key.
@@ -161,6 +185,10 @@ hosted managed-identity discovery.
 - At steady state three continually requested locations need about 432 calls
   per day. Provider errors, process restarts, and other use of the account
   alter that figure. Review your account's actual usage.
+- An uncached entered location uses the same fixed current-weather endpoint,
+  not a separate geocoding service. Additional queries and cache eviction
+  increase provider use. These in-memory controls do not impose an account-wide
+  quota or spending cap and can reset on restarts/scale to zero.
 
 For custom destinations, use a `WEATHER_LOCATIONS` variable containing up to
 three objects with unique `id`, display `name`, and numeric `coordinates`:
@@ -170,6 +198,8 @@ three objects with unique `id`, display `name`, and numeric `coordinates`:
 ```
 
 Deploy a new version to capture changed variables.
+Entered queries are length-limited, normalized, and encoded. URLs, IP addresses,
+coordinate input, and provider-specific lookup prefixes are not accepted.
 Only the server uses the fixed `api.weatherapi.com` destination. Application
 links are relative and do not depend on the public Host being passed through
 Builder's proxy.

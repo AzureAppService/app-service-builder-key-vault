@@ -1,5 +1,6 @@
 import concurrent.futures
 import io
+import json
 import os
 import subprocess
 import sys
@@ -13,8 +14,8 @@ from urllib.error import HTTPError
 os.environ.setdefault("KEY_VAULT_URL", "https://example-test-vault.vault.azure.net")
 os.environ.setdefault("SAMPLE_EXPIRES_AT", "2030-01-01T00:00:00Z")
 
-from app import DEFAULT_LOCATIONS, configured_deadline, configured_locations, create_app, key_vault_loader
-from weather import DAILY_ATTEMPTS, MAX_RESPONSE_BYTES, DependencyError, WeatherService, fetch_weather
+from app import DEFAULT_LOCATIONS, configured_deadline, configured_locations, create_app, key_vault_loader, requested_location
+from weather import DAILY_ATTEMPTS, LOOKUP_ATTEMPTS_PER_MINUTE, MAX_CACHE_ENTRIES, MAX_RESPONSE_BYTES, DependencyError, WeatherService, fetch_weather
 
 
 def secret(value="test-only-credential", expires=None, enabled=True):
@@ -25,6 +26,7 @@ def payload():
     return {"current": {"temp_c": 12, "feelslike_c": 10, "wind_kph": 8,
                         "humidity": 70, "last_updated_epoch": 1793847000,
                         "condition": {"text": "Partly cloudy"}},
+            "location": {"name": "Seattle", "region": "Washington", "country": "USA"},
             "secret": "should-not-reach-browser"}
 
 
@@ -122,6 +124,120 @@ class WeatherTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_entered_location_is_normalized_and_resolved_by_provider(self):
+        first = requested_location("  PARIS  ")
+        second = requested_location("Paris")
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(requested_location("New   York")["query"], "New York")
+        self.assertEqual(requested_location("São Paulo")["query"], "São Paulo")
+        response = self.service.read(first)
+        self.assertEqual(response["location"], "Seattle, Washington, USA")
+        self.assertTrue(self.service.read(second)["cached"])
+        self.assertEqual(len(self.keys), 1)
+
+    def test_invalid_entered_locations_never_reach_dependencies(self):
+        client = create_app(self.service, DEFAULT_LOCATIONS).test_client()
+        for value in ["", "x", "x" * 81, "https://example.com", "auto:ip", "id:2801268",
+                      "127.0.0.1", "48.8,2.3", "Paris\nLondon", "<script>", "..."]:
+            response = client.get("/api/weather", query_string={"location": value})
+            self.assertEqual(response.status_code, 400, value)
+        self.assertEqual(client.get("/api/weather?location=Paris&location=London").status_code, 400)
+        self.assertEqual(client.get("/api/weather?location=Paris&url=other").status_code, 400)
+        self.assertEqual(self.loads, 0)
+        self.assertEqual(self.keys, [])
+
+    def test_lookup_rate_limit_counts_only_uncached_entered_places(self):
+        first = requested_location("City zero")
+        self.service.read(first)
+        for index in range(1, LOOKUP_ATTEMPTS_PER_MINUTE):
+            self.service.read(requested_location(f"City {index}"))
+        self.assertTrue(self.service.read(first)["cached"])
+        self.service.read(self.location)
+        with self.assertRaises(DependencyError) as error:
+            self.service.read(requested_location("One more city"))
+        self.assertEqual(error.exception.code, "lookup_limit")
+        self.assertEqual(error.exception.status, 429)
+        self.assertEqual(error.exception.retry_after, 60)
+        self.assertEqual(len(self.keys), LOOKUP_ATTEMPTS_PER_MINUTE + 1)
+        self.now += 60
+        self.service.read(requested_location("One more city"))
+        self.assertEqual(len(self.keys), LOOKUP_ATTEMPTS_PER_MINUTE + 2)
+
+    def test_location_cache_is_bounded_and_evicts_oldest_observation(self):
+        for index in range(MAX_CACHE_ENTRIES + 1):
+            self.service.read(requested_location(f"City {index}"))
+            self.now += 6
+        self.assertEqual(len(self.service.weather), MAX_CACHE_ENTRIES)
+        count = len(self.keys)
+        self.service.read(requested_location("City 0"))
+        self.assertEqual(len(self.keys), count + 1)
+        self.assertEqual(len(self.service.weather), MAX_CACHE_ENTRIES)
+
+    def test_failed_query_cache_is_bounded(self):
+        self.service.fetch = lambda *_: (_ for _ in ()).throw(DependencyError("location_not_found", "Not found.", 404))
+        for index in range(MAX_CACHE_ENTRIES + 10):
+            with self.assertRaises(DependencyError):
+                self.service.read(requested_location(f"City {index}"))
+        self.assertLessEqual(len(self.service.failures), MAX_CACHE_ENTRIES)
+        self.assertEqual(self.service.attempts, LOOKUP_ATTEMPTS_PER_MINUTE)
+
+    def test_slow_refresh_does_not_create_unbounded_lock_wait(self):
+        with self.service.lock:
+            with self.assertRaises(DependencyError) as error:
+                self.service.read(self.location)
+        self.assertEqual(error.exception.code, "refresh_busy")
+        self.assertEqual(error.exception.retry_after, 1)
+        self.assertEqual(self.loads, 0)
+
+    def test_provider_auth_failure_cools_all_uncached_locations(self):
+        self.service.fetch = lambda *_: (_ for _ in ()).throw(DependencyError("provider_auth", "Rejected."))
+        for location in [self.location, DEFAULT_LOCATIONS[1]]:
+            with self.assertRaises(DependencyError):
+                self.service.read(location)
+        self.assertEqual(self.service.attempts, 1)
+        self.assertIsNone(self.service.secret)
+        self.now += 60
+        self.service.fetch = lambda *_: payload()
+        self.service.read(DEFAULT_LOCATIONS[1])
+        self.assertEqual(self.service.attempts, 2)
+        self.assertEqual(self.loads, 2)
+
+    def test_missing_provider_location_is_not_success_shaped(self):
+        data = payload()
+        del data["location"]
+        self.service.fetch = lambda *_: data
+        with self.assertRaises(DependencyError) as error:
+            self.service.read(requested_location("Paris"))
+        self.assertEqual(error.exception.code, "provider_response")
+
+    def test_query_encoding_keeps_fixed_provider_destination(self):
+        from urllib.parse import parse_qs, urlsplit
+        with patch("weather.build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = (
+                json.dumps(payload()).encode()
+            )
+            fetch_weather("test-only-credential", "São Paulo, Brazil")
+            url = urlsplit(opener.return_value.open.call_args.args[0].full_url)
+        self.assertEqual(url.scheme, "https")
+        self.assertEqual(url.netloc, "api.weatherapi.com")
+        self.assertEqual(url.path, "/v1/current.json")
+        self.assertEqual(parse_qs(url.query)["q"], ["São Paulo, Brazil"])
+
+    def test_provider_lookup_and_quota_errors_are_safe_and_specific(self):
+        for http_status, provider_code, category, status in [
+            (400, 1006, "location_not_found", 404),
+            (403, 2007, "provider_quota", 429),
+            (403, 2011, "provider_quota", 429),
+        ]:
+            body = io.BytesIO(json.dumps({"error": {"code": provider_code, "message": "private-key-in-error"}}).encode())
+            with patch("weather.build_opener") as opener:
+                opener.return_value.open.side_effect = HTTPError("https://api.weatherapi.com/?key=private-key-in-error", http_status, "", {}, body)
+                with self.assertRaises(DependencyError) as error:
+                    fetch_weather("private-key-in-error", "Unknown")
+            self.assertEqual(error.exception.code, category)
+            self.assertEqual(error.exception.status, status)
+            self.assertNotIn("private-key-in-error", str(error.exception))
 
     def test_expired_secret_is_never_sent_to_provider(self):
         self.value = secret(expires=datetime.fromtimestamp(self.now - 1, timezone.utc))

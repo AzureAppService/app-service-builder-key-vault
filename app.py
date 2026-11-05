@@ -5,12 +5,13 @@ import logging
 import os
 import re
 import secrets
+import unicodedata
 from datetime import datetime, timezone
 
 from azure.core.exceptions import AzureError, ResourceNotFoundError
 from azure.identity import AzureCliCredential, ManagedIdentityCredential
 from azure.keyvault.secrets import SecretClient
-from flask import Flask, g, jsonify, render_template
+from flask import Flask, g, jsonify, render_template, request
 
 from weather import DependencyError, WeatherService
 
@@ -41,6 +42,22 @@ def configured_locations(raw):
             raise ValueError("Coordinates are outside latitude/longitude ranges.")
         ids.add(identifier)
     return locations
+
+
+def requested_location(raw):
+    message = "Enter a city or postal code using 2-80 characters, not a URL or IP address."
+    if not isinstance(raw, str) or not 2 <= len(raw) <= 80:
+        raise DependencyError("invalid_location", message, 400)
+    value = unicodedata.normalize("NFKC", raw).strip(" ")
+    if not 2 <= len(value) <= 80 or not all(
+        character.isalpha() or character in "0123456789 ,.'-"
+        for character in value
+    ) or not any(character.isalnum() for character in value):
+        raise DependencyError("invalid_location", message, 400)
+    value = " ".join(value.split())
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", value) or re.fullmatch(r"-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?", value):
+        raise DependencyError("invalid_location", message, 400)
+    return {"id": "query:" + value.casefold(), "name": value, "query": value}
 
 
 def key_vault_loader():
@@ -123,19 +140,35 @@ def create_app(service=None, locations=None):
     def favicon():
         return "", 204
 
+    def dependency_response(error):
+        app.logger.warning("Weather request failed: category=%s", error.code)
+        response = jsonify(error={"code": error.code, "message": str(error)})
+        if error.retry_after is not None:
+            response.headers["Retry-After"] = str(error.retry_after)
+        return response, error.status
+
+    def weather_response(location):
+        try:
+            return jsonify(service.read(location))
+        except DependencyError as error:
+            return dependency_response(error)
+
     @app.get("/api/weather/<identifier>")
     def weather(identifier):
         location = by_id.get(identifier)
         if location is None:
             return jsonify(error={"code": "location_not_found", "message": "Choose a configured location."}), 404
+        return weather_response(location)
+
+    @app.get("/api/weather")
+    def lookup():
         try:
-            return jsonify(service.read(location))
+            if len(request.args.getlist("location")) != 1 or len(request.args) != 1:
+                raise DependencyError("invalid_location", "Provide one city or postal code.", 400)
+            location = requested_location(request.args["location"])
         except DependencyError as error:
-            app.logger.warning("Weather request failed: category=%s", error.code)
-            response = jsonify(error={"code": error.code, "message": str(error)})
-            if error.status == 503:
-                response.headers["Retry-After"] = "60"
-            return response, error.status
+            return dependency_response(error)
+        return weather_response(location)
 
     return app
 
