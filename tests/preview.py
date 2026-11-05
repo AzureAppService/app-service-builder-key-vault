@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("KEY_VAULT_URL", "https://example-test-vault.vault.azure.net")
+os.environ["AZURE_AUTH_MODE"] = "azure-cli"
 
 from app import DEFAULT_LOCATIONS, create_app
 from weather import WeatherService

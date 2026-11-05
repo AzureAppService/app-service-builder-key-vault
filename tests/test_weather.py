@@ -1,9 +1,12 @@
 import concurrent.futures
 import io
 import os
+import subprocess
+import sys
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -102,6 +105,23 @@ class WeatherTests(unittest.TestCase):
                              datetime(2026, 11, 5, 12, tzinfo=timezone.utc).timestamp())
         with patch.dict(os.environ, {"AZURE_AUTH_MODE": "azure-cli"}):
             self.assertIsNone(configured_deadline(None))
+
+    def test_synthetic_preview_needs_no_hosted_deadline(self):
+        environment = dict(os.environ)
+        environment.pop("SAMPLE_EXPIRES_AT", None)
+        environment.pop("AZURE_AUTH_MODE", None)
+        code = (
+            "import runpy; app = runpy.run_path('tests/preview.py')['preview']; "
+            "response = app.test_client().get('/api/weather/seattle'); "
+            "assert response.status_code == 200; "
+            "assert 'synthetic data' in app.test_client().get('/').text"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=Path(__file__).resolve().parents[1], env=environment,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_expired_secret_is_never_sent_to_provider(self):
         self.value = secret(expires=datetime.fromtimestamp(self.now - 1, timezone.utc))
