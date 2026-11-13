@@ -8,12 +8,13 @@ import secrets
 import unicodedata
 from datetime import datetime, timezone
 
-from azure.core.exceptions import AzureError, ResourceNotFoundError
+from azure.core.exceptions import AzureError, ClientAuthenticationError, HttpResponseError, ResourceNotFoundError, ServiceRequestError
 from azure.identity import AzureCliCredential, ManagedIdentityCredential
 from azure.keyvault.secrets import SecretClient
 from flask import Flask, g, jsonify, render_template, request
 
 from weather import DependencyError, WeatherService
+from setup_page import setup_page
 
 DEFAULT_LOCATIONS = [
     {"id": "seattle", "name": "Seattle", "coordinates": "47.6062,-122.3321"},
@@ -84,6 +85,14 @@ def key_vault_loader():
             if getattr(error.error, "code", None) == "SecretNotFound":
                 raise DependencyError("secret_missing", "The configured secret does not exist. Add it directly to the dedicated vault.") from None
             raise DependencyError("vault_access", "Cannot read the configured Key Vault secret. Check identity, permissions, and connectivity.") from None
+        except ClientAuthenticationError:
+            raise DependencyError("identity_unavailable", "App identity could not authenticate. Check the same app's managed identity and redeployment.") from None
+        except ServiceRequestError:
+            raise DependencyError("vault_unreachable", "Key Vault is unreachable. Check the vault endpoint and network rules.") from None
+        except HttpResponseError as error:
+            if error.status_code in (401, 403):
+                raise DependencyError("vault_denied", "Key Vault denied the read. Check the app identity's secret-read role and vault network rules.") from None
+            raise DependencyError("vault_access", "Cannot read the configured Key Vault secret. Check identity, permissions, and connectivity.") from None
         except AzureError:
             raise DependencyError("vault_access", "Cannot read the configured Key Vault secret. Check identity, permissions, and connectivity.") from None
 
@@ -107,9 +116,21 @@ def configured_deadline(raw):
 def create_app(service=None, locations=None):
     app = Flask(__name__)
     locations = locations if locations is not None else configured_locations(os.environ.get("WEATHER_LOCATIONS"))
-    service = service if service is not None else WeatherService(
-        key_vault_loader(), expires_at=configured_deadline(os.environ.get("SAMPLE_EXPIRES_AT"))
-    )
+    configuration_error = None
+    if service is None:
+        try:
+            loader = key_vault_loader()
+            deadline = configured_deadline(os.environ.get("SAMPLE_EXPIRES_AT"))
+        except ValueError:
+            configuration_error = "configuration_missing" if not os.environ.get("KEY_VAULT_URL") or not os.environ.get("SAMPLE_EXPIRES_AT") else "configuration_invalid"
+
+            def loader():
+                raise DependencyError(configuration_error, "Weather setup is incomplete. Follow the setup steps, save settings and deploy a new version.")
+
+            deadline = None
+        service = WeatherService(loader, expires_at=deadline)
+        if configuration_error:
+            service.last_state = configuration_error
     by_id = {location["id"]: location for location in locations}
 
     @app.before_request
@@ -132,9 +153,18 @@ def create_app(service=None, locations=None):
     def index():
         return render_template("index.html", locations=locations)
 
+    @app.get("/README.md")
+    def setup_readme():
+        return setup_page()
+
     @app.get("/health")
     def health():
         return jsonify(status="ready")
+
+    @app.get("/ready")
+    def readiness():
+        state = service.readiness()
+        return jsonify(**state, setupUrl="./README.md#setup"), 200 if state["code"] == "weather_verified" else 503
 
     @app.get("/favicon.ico")
     def favicon():

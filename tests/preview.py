@@ -1,6 +1,7 @@
 """Local UI fixture only; never a hosted integration or provider fallback."""
 
 import os
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -13,8 +14,11 @@ os.environ["AZURE_AUTH_MODE"] = "azure-cli"
 from app import DEFAULT_LOCATIONS, create_app
 from weather import DependencyError, WeatherService
 
+missing_secret = False
 
 def load_secret():
+    if missing_secret:
+        raise DependencyError("secret_missing", "The configured secret does not exist. Add it directly to the dedicated vault.")
     return SimpleNamespace(value="synthetic-preview-only", properties=SimpleNamespace(enabled=True, expires_on=None))
 
 
@@ -37,4 +41,11 @@ preview = create_app(WeatherService(load_secret, fetch), DEFAULT_LOCATIONS)
 preview.jinja_env.globals["preview_notice"] = "Local UI preview - synthetic data. Azure and WeatherAPI are not contacted."
 
 if __name__ == "__main__":
-    preview.run(host="127.0.0.1", port=8117)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--port", type=int, default=8117)
+    parser.add_argument("--missing-secret", action="store_true")
+    args = parser.parse_args()
+    missing_secret = args.missing_secret
+    if missing_secret:
+        preview.jinja_env.globals["preview_notice"] = "Local UI preview - missing-secret fixture. Azure and WeatherAPI are not contacted."
+    preview.run(host="127.0.0.1", port=args.port)

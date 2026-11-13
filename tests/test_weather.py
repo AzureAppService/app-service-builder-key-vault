@@ -31,6 +31,50 @@ def payload():
 
 
 class WeatherTests(unittest.TestCase):
+    def test_missing_configuration_boots_same_app_without_dependency_calls(self):
+        with patch.dict(os.environ, {}, clear=True), patch("app.SecretClient") as vault, patch("weather.fetch_weather") as provider:
+            client = create_app().test_client()
+            self.assertEqual(client.get("/").status_code, 200)
+            self.assertEqual(client.get("/health").status_code, 200)
+            self.assertIn(b'id="setup"', client.get("/README.md").data)
+            for path in ["/ready", "/api/weather/seattle"]:
+                response = client.get(path)
+                self.assertEqual(response.status_code, 503)
+                body = response.get_json()
+                self.assertEqual(body.get("code", body.get("error", {}).get("code")), "configuration_missing")
+            vault.assert_not_called()
+            provider.assert_not_called()
+
+    def test_readiness_requires_actual_weather_and_expires_without_probes(self):
+        client = create_app(self.service, DEFAULT_LOCATIONS).test_client()
+        self.assertEqual(client.get("/ready").status_code, 503)
+        self.assertEqual(self.loads, 0)
+        self.assertEqual(client.get("/api/weather/seattle").status_code, 200)
+        self.assertEqual(client.get("/ready").get_json()["code"], "weather_verified")
+        self.assertEqual(self.loads, 1)
+        self.assertEqual(len(self.keys), 1)
+        self.now += 300
+        self.assertEqual(client.get("/ready").status_code, 503)
+        self.assertEqual(client.get("/ready").get_json()["code"], "not_checked")
+        self.service.expires_at = self.now
+        self.assertEqual(client.get("/ready").get_json()["code"], "demo_expired")
+        self.assertEqual(client.get("/health").status_code, 200)
+        self.assertEqual(len(self.keys), 1)
+
+    def test_vault_denied_unreachable_and_identity_failures_are_sanitized(self):
+        from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ServiceRequestError
+        for error, category in [
+            (HttpResponseError("private-canary", response=SimpleNamespace(status_code=403, reason="Forbidden", headers={})), "vault_denied"),
+            (ServiceRequestError("private-canary endpoint"), "vault_unreachable"),
+            (ClientAuthenticationError("private-canary credential"), "identity_unavailable"),
+        ]:
+            with patch("app.SecretClient") as vault:
+                vault.return_value.get_secret.side_effect = error
+                with self.assertRaises(DependencyError) as raised:
+                    key_vault_loader()()
+                self.assertEqual(raised.exception.code, category)
+                self.assertNotIn("private-canary", str(raised.exception))
+
     def setUp(self):
         self.now = 1793847000
         self.keys = []

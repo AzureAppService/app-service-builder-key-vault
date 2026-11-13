@@ -122,6 +122,23 @@ class WeatherService:
         self.lookup_attempts = deque()
         self.provider_failure = None
         self.provider_retry_at = 0
+        self.last_state = "not_checked"
+        self.last_verified_until = 0
+
+    def readiness(self):
+        if not self.lock.acquire(timeout=1):
+            return {"code": "refresh_busy"}
+        try:
+            now = self.clock()
+            if self.expires_at is not None and now >= self.expires_at:
+                code = "demo_expired"
+            elif self.last_state == "weather_verified" and now >= self.last_verified_until:
+                code = "not_checked"
+            else:
+                code = self.last_state
+            return {"code": code}
+        finally:
+            self.lock.release()
 
     def _check_deadline(self, now):
         if self.expires_at is not None and now >= self.expires_at:
@@ -207,8 +224,11 @@ class WeatherService:
                 self._remember(self.weather, location["id"], result)
                 self.provider_failure = None
                 self.failures.pop(location["id"], None)
+                self.last_state = "weather_verified"
+                self.last_verified_until = min(completed + WEATHER_TTL, self.secret_until)
                 return {**result, "cached": False}
             except DependencyError as error:
+                self.last_state = error.code
                 self._remember(self.failures, location["id"], (self.clock() + FAILURE_TTL, error))
                 if error.code in ("provider_auth", "provider_quota", "provider_unavailable"):
                     self.provider_failure = error
