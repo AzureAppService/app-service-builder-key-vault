@@ -98,6 +98,10 @@
     dd { font-size: 22px; margin: 0; font-weight: 600; }
     .metadata { font-size: 13px; margin-top: 20px; }
     #status { min-height: 28px; margin: 16px 0 0; line-height: 1.5; }
+    .sample-help { margin-top: 32px; line-height: 1.6; }
+    .sample-help summary { padding-block: 12px; cursor: pointer; font-weight: 600; }
+    .sample-help code { overflow-wrap: anywhere; }
+    summary:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 4px; }
     footer { font-size: 13px; margin-top: 28px; }
     a { color: var(--cp-link); }
     [hidden] { display: none !important; }
@@ -156,6 +160,17 @@
         <p class="metadata" id="observation"></p>
       </div>
       <p id="status" role="status" aria-live="polite">Loading current conditions...</p>
+    </section>
+    <section class="sample-help" aria-labelledby="help-title">
+      <h2 id="help-title">Make this weather page yours</h2>
+      <details>
+        <summary>Customize locations and appearance</summary>
+        <p>Set <code>WEATHER_LOCATIONS</code> for one to three quick picks, following the JSON format in the README.
+          Edit <code>templates/index.html</code> in your own fork to change the page. Test, commit and redeploy your fork.
+          Keep the WeatherAPI credential in Key Vault, never in browser code.</p>
+      </details>
+      <p><a href="https://builder.appservice.azure.com/docs/">App Service Builder documentation</a> ·
+        <a href="https://www.weatherapi.com/docs/">WeatherAPI documentation</a></p>
     </section>
     <footer>
       Weather data provided by <a href="https://www.weatherapi.com/">WeatherAPI.com</a>.

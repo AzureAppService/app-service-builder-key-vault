@@ -10,6 +10,15 @@ Entra authentication. A keyless weather API would not need Key Vault.
 
 Canonical source: [AzureAppService/app-service-builder-key-vault](https://github.com/AzureAppService/app-service-builder-key-vault).
 
+## Local page preview
+
+![Weather dashboard at the root route with city search, location quick picks and current conditions using synthetic local data](docs/images/sample.png)
+
+Rendered locally using `tests/preview.py` and synthetic weather observations.
+Azure Key Vault and WeatherAPI were not contacted. The useful page is at `/`.
+Expand **Customize locations and appearance** for the source files and quick-pick
+setting. Documentation links distinguish App Service Builder from WeatherAPI.
+
 ## Prerequisites
 
 - An Azure subscription authorized for App Service Builder in West US 2, with
