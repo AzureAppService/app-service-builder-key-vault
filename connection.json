@@ -1,0 +1,10 @@
+{
+  "name": "weather",
+  "type": "keyVault",
+  "resourceId": "/subscriptions/<subscription-id>/resourceGroups/<vault-group>/providers/Microsoft.KeyVault/vaults/<vault>",
+  "managedIdentity": { "type": "SystemAssigned" },
+  "settings": [
+    { "field": "vaultUri", "value": "https://<vault>.vault.azure.net/", "environmentVariable": "KEY_VAULT_URL" },
+    { "field": "secretName", "value": "weather-api-key", "environmentVariable": "KEY_VAULT_SECRET_NAME" }
+  ]
+}
