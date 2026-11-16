@@ -14,6 +14,9 @@ The official Python and Builder branding, ecosystem links, destination picks, un
 
 ## Setup
 
+Prefer the Portal steps below, or use [CLI and ordered ARM/Bicep setup](docs/connection-automation.md).
+Both retrieve the provider credential from Key Vault with managed identity; neither creates a WeatherAPI credential.
+
 Start with your fork already deployed from the root `builder.yaml`. You need Azure CLI/Bicep, permission to create a vault in a dedicated service group, authority to assign roles on that vault, and your own WeatherAPI account/key. No second Builder app is needed.
 
 1. **Create a dedicated vault.** Set your authorized subscription and an existing, dedicated service group (separate from shared workloads), then create only the vault:
@@ -43,7 +46,9 @@ Start with your fork already deployed from the root `builder.yaml`. You need Azu
    ```
 
    The vault holds only this app's secret; the app cannot create/rotate it. Do not use Secrets Officer, Owner or subscription-wide roles for the app. Allow time for propagation.
-4. **Save configuration AND deploy a new version.** In this app's **Variables > Add variables**, set `KEY_VAULT_URL` to **vault > Overview > Vault URI**, `KEY_VAULT_SECRET_NAME=weather-api-key` and `SAMPLE_EXPIRES_AT` to your approved future UTC deadline (`yyyy-MM-ddTHH:mm:ssZ`). Leave `AZURE_CLIENT_ID` unset; do not set `AZURE_AUTH_MODE=azure-cli` in Builder. Choose **Save and deploy**, follow **Deployments** to success and check the new active version. **Save only**, restarting or selecting an old version does not apply changed variables. If a save succeeded but deployment did not start, deploy current source instead of recreating the app. Optional installed Builder CLI:
+4. **Save a Key Vault connection, then deploy.** In this app's **Connections**, add **Key Vault**, select the dedicated vault and app's system-assigned **Managed identity**. Rename the vault URI mapping to `KEY_VAULT_URL` and keep `KEY_VAULT_SECRET_NAME=weather-api-key`. The WeatherAPI credential remains in the vault; this profile exports only its URI and secret name, not the secret value. Keep `SAMPLE_EXPIRES_AT` in Variables with your approved future UTC deadline (`yyyy-MM-ddTHH:mm:ssZ`); leave `AZURE_CLIENT_ID` unset and never set `AZURE_AUTH_MODE=azure-cli` in Builder.
+
+   For an existing variables-based app, remove the old URI/secret-name variables without deploying, then save the exact connection mappings and deploy the complete desired configuration once. Follow **Deployments** to success and check the new active version. Saving, restarting or selecting an old version does not apply the new connection. [connection.json](connection.json) provides the complete object; replace destination placeholders. The production catalog advertises Key Vault Connections; qualification of this revision's deployed vault/weather operation remains pending, separate from historical direct-variable proof. The [Connections guide](https://builder.appservice.azure.com/docs/guides/connect-to-services/) covers CLI availability and ETag-guarded ARM setup. The [CLI/ARM alternatives](docs/connection-automation.md) include the native CLI release prerequisite. Its separate deployment command is:
 
    ```bash
    builder app deploy --name "<existing-app>" \
